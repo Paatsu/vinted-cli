@@ -1,0 +1,41 @@
+[project]
+name = "vinted-cli"
+version = "0.1.0"
+description = "Fast CLI for searching Vinted — optimized for agents and scripting"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Paatsu" }]
+keywords = ["vinted", "cli", "search", "marketplace", "sweden", "fashion"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "click>=8.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+vinted = "vinted_cli.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.9"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
