@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+import json
 import logging
 import time
 
@@ -115,6 +117,88 @@ def _request_with_retry(url: str, *, params=None, cookies: httpx.Cookies) -> htt
     return r  # unreachable after raise_for_status, satisfies type checkers
 
 
+def _extract_item_object_from_page(page_html: str) -> dict | None:
+    """Extract embedded item JSON from a Vinted item page."""
+    marker_idx = page_html.find(r"\"item\":{")
+    escaped_quotes = True
+    if marker_idx == -1:
+        marker_idx = page_html.find('"item":{')
+        escaped_quotes = False
+    if marker_idx == -1:
+        return None
+
+    start = page_html.find("{", marker_idx)
+    if start == -1:
+        return None
+
+    # The embedded object uses escaped quotes (e.g. {\"id\":...}).
+    # Braces are still literal, so a simple depth scan is sufficient here.
+    depth = 0
+    end = -1
+    for pos, ch in enumerate(page_html[start:], start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = pos
+                break
+
+    if end == -1:
+        return None
+
+    raw = page_html[start : end + 1]
+    if escaped_quotes:
+        normalized = raw.replace(r"\"", '"').replace(r"\/", "/").replace('"$undefined"', "null")
+    else:
+        normalized = raw.replace('"$undefined"', "null")
+    try:
+        return json.loads(normalized)
+    except json.JSONDecodeError:
+        return None
+
+
+def _extract_meta_description(page_html: str) -> str | None:
+    marker = '<meta name="description" content="'
+    i = page_html.find(marker)
+    if i == -1:
+        return None
+    start = i + len(marker)
+    end = page_html.find('"/>', start)
+    if end == -1:
+        return None
+    return html.unescape(page_html[start:end]).strip()
+
+
+def _page_fallback_item(item_id: int | str, domain: str, cookies: httpx.Cookies) -> dict:
+    item_url = f"https://{domain}/items/{item_id}"
+    log.debug("Fallback GET %s", item_url)
+    page_resp = _request_with_retry(item_url, cookies=cookies)
+    page_resp.raise_for_status()
+
+    item = _extract_item_object_from_page(page_resp.text)
+    if not item:
+        raise ValueError("Could not parse item data from item page fallback")
+
+    # Keep output close to the old API shape expected by formatters and scripts.
+    if "brand_title" not in item and isinstance(item.get("brand_dto"), dict):
+        item["brand_title"] = item["brand_dto"].get("title")
+    if "user" not in item and item.get("login"):
+        item["user"] = {"login": item["login"]}
+    if "photo" not in item and isinstance(item.get("photos"), list) and item["photos"]:
+        item["photo"] = item["photos"][0]
+    if "url" not in item:
+        item["url"] = item_url
+    if "description" not in item:
+        description = _extract_meta_description(page_resp.text)
+        if description:
+            title = item.get("title", "")
+            prefix = f"{title} - "
+            item["description"] = description[len(prefix) :] if title and description.startswith(prefix) else description
+
+    return {"item": item}
+
+
 def _resolve_country(country: str) -> str:
     domain = COUNTRIES.get(country.lower())
     if not domain:
@@ -189,6 +273,9 @@ def get_item(item_id: int | str, *, country: str = "se") -> dict:
     r = _request_with_retry(f"https://{domain}/api/v2/items/{item_id}", cookies=cookies)
     log.debug("Item response: %s", r.status_code)
     log.debug("Response body: %s", r.text[:2000])
+    if r.status_code == 404:
+        log.debug("Primary item endpoint returned 404; falling back to item page parsing")
+        return _page_fallback_item(item_id, domain, cookies)
     r.raise_for_status()
     return r.json()
 
