@@ -1,6 +1,6 @@
 [project]
 name = "vinted-cli"
-version = "0.1.2"
+version = "0.1.3"
 description = "Fast CLI for searching Vinted — optimized for agents and scripting"
 readme = "README.md"
 license = "MIT"
@@ -26,7 +26,7 @@ Repository = "https://github.com/Paatsu/vinted-cli"
 Issues = "https://github.com/Paatsu/vinted-cli/issues"
 
 [project.scripts]
-vinted = "vinted-cli.cli:main"
+vinted = "vinted_cli.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.9"]
