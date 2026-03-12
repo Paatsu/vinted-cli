@@ -1,6 +1,6 @@
 [project]
 name = "vinted-cli"
-version = "0.1.1"
+version = "0.1.2"
 description = "Fast CLI for searching Vinted — optimized for agents and scripting"
 readme = "README.md"
 license = "MIT"

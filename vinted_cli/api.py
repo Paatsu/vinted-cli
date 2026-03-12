@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import re
 import time
 
 import httpx
@@ -98,6 +99,12 @@ def _get_session(domain: str) -> httpx.Cookies:
     return r.cookies
 
 
+def _refresh_session(domain: str) -> httpx.Cookies:
+    """Force-refresh session cookies for *domain*."""
+    _session_cache.pop(domain, None)
+    return _get_session(domain)
+
+
 def _request_with_retry(url: str, *, params=None, cookies: httpx.Cookies) -> httpx.Response:
     """GET *url* with exponential-backoff retries on transient errors (429, 5xx)."""
     delay = _RETRY_BACKOFF
@@ -115,6 +122,20 @@ def _request_with_retry(url: str, *, params=None, cookies: httpx.Cookies) -> htt
         delay *= 2
     r.raise_for_status()
     return r  # unreachable after raise_for_status, satisfies type checkers
+
+
+def _request_with_forbidden_recovery(
+    url: str, *, domain: str, cookies: httpx.Cookies, params=None
+) -> tuple[httpx.Response, httpx.Cookies]:
+    """Request once, and if blocked (403), refresh session and retry once."""
+    r = _request_with_retry(url, params=params, cookies=cookies)
+    if r.status_code != 403:
+        return r, cookies
+
+    log.debug("HTTP 403 for %s, refreshing session and retrying once", url)
+    refreshed = _refresh_session(domain)
+    retried = _request_with_retry(url, params=params, cookies=refreshed)
+    return retried, refreshed
 
 
 def _extract_item_object_from_page(page_html: str) -> dict | None:
@@ -170,10 +191,49 @@ def _extract_meta_description(page_html: str) -> str | None:
     return html.unescape(page_html[start:end]).strip()
 
 
+def _parse_shipping_amount(text: str) -> str | None:
+    """Extract normalized decimal amount from shipping text like 'från 38,59 kr'."""
+    match = re.search(r"([0-9]+(?:[ .][0-9]{3})*(?:[,.][0-9]{1,2})?)", text)
+    if not match:
+        return None
+    value = match.group(1).replace(" ", "").replace("\xa0", "")
+    if "," in value:
+        value = value.replace(".", "").replace(",", ".")
+    return value
+
+
+def _extract_shipping_from_page(page_html: str, item_currency: str | None) -> dict:
+    """Extract shipping banner details from item page HTML."""
+    out: dict = {}
+
+    title_match = re.search(r'data-testid="item-shipping-banner-title">([^<]+)<', page_html)
+    price_match = re.search(r'data-testid="item-shipping-banner-price">([^<]+)<', page_html)
+
+    title = html.unescape(title_match.group(1)).replace("\xa0", " ").strip() if title_match else None
+    price_text = html.unescape(price_match.group(1)).replace("\xa0", " ").strip() if price_match else None
+    shipping_text = " ".join(p for p in [title, price_text] if p).replace("\xa0", " ").strip()
+    if not shipping_text:
+        return out
+
+    out["shipping_text"] = shipping_text
+
+    # Vinted shows this in localized text; keep broad matching for robustness.
+    if title and "gratis frakt" in title.lower():
+        out["shipping_free"] = True
+        return out
+
+    amount = _parse_shipping_amount(price_text or shipping_text)
+    if amount is not None:
+        out["shipping_free"] = False
+        out["shipping_price"] = {"amount": amount, "currency_code": item_currency or ""}
+
+    return out
+
+
 def _page_fallback_item(item_id: int | str, domain: str, cookies: httpx.Cookies) -> dict:
     item_url = f"https://{domain}/items/{item_id}"
     log.debug("Fallback GET %s", item_url)
-    page_resp = _request_with_retry(item_url, cookies=cookies)
+    page_resp, _ = _request_with_forbidden_recovery(item_url, domain=domain, cookies=cookies)
     page_resp.raise_for_status()
 
     item = _extract_item_object_from_page(page_resp.text)
@@ -195,6 +255,7 @@ def _page_fallback_item(item_id: int | str, domain: str, cookies: httpx.Cookies)
             title = item.get("title", "")
             prefix = f"{title} - "
             item["description"] = description[len(prefix) :] if title and description.startswith(prefix) else description
+    item.update(_extract_shipping_from_page(page_resp.text, item.get("currency")))
 
     return {"item": item}
 
@@ -257,7 +318,12 @@ def search(
         params.append(("order", SORT_MAP.get(sort, sort)))
 
     log.debug("GET https://%s/api/v2/catalog/items params=%s", domain, params)
-    r = _request_with_retry(f"https://{domain}/api/v2/catalog/items", params=params, cookies=cookies)
+    r, _ = _request_with_forbidden_recovery(
+        f"https://{domain}/api/v2/catalog/items",
+        params=params,
+        domain=domain,
+        cookies=cookies,
+    )
     log.debug("Search response: %s", r.status_code)
     log.debug("Response body: %s", r.text[:2000])
     r.raise_for_status()
@@ -270,7 +336,11 @@ def get_item(item_id: int | str, *, country: str = "se") -> dict:
     cookies = _get_session(domain)
 
     log.debug("GET https://%s/api/v2/items/%s", domain, item_id)
-    r = _request_with_retry(f"https://{domain}/api/v2/items/{item_id}", cookies=cookies)
+    r, cookies = _request_with_forbidden_recovery(
+        f"https://{domain}/api/v2/items/{item_id}",
+        domain=domain,
+        cookies=cookies,
+    )
     log.debug("Item response: %s", r.status_code)
     log.debug("Response body: %s", r.text[:2000])
     if r.status_code == 404:
@@ -287,8 +357,11 @@ def fetch_catalogs(*, country: str = "se") -> list[dict]:
 
     params = [("page", "1"), ("time", str(int(time.time())))]
     log.debug("GET https://%s/api/v2/catalog/initializers", domain)
-    r = _request_with_retry(
-        f"https://{domain}/api/v2/catalog/initializers", params=params, cookies=cookies
+    r, _ = _request_with_forbidden_recovery(
+        f"https://{domain}/api/v2/catalog/initializers",
+        params=params,
+        domain=domain,
+        cookies=cookies,
     )
     r.raise_for_status()
     data = r.json()

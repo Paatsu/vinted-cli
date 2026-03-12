@@ -39,9 +39,37 @@ def test_get_item_uses_primary_json_endpoint():
     assert data["item"]["title"] == "Primary item"
 
 
+def test_get_item_retries_once_after_403_with_refreshed_session():
+    first_cookies = httpx.Cookies({"sid": "old"})
+    second_cookies = httpx.Cookies({"sid": "new"})
+    observed_cookie_sids: list[str] = []
+    responses = [
+        _response("https://www.vinted.se/api/v2/items/123", 403, "<html>Forbidden</html>"),
+        _response(
+            "https://www.vinted.se/api/v2/items/123",
+            200,
+            '{"item":{"id":123,"title":"Recovered item"}}',
+            content_type="application/json; charset=utf-8",
+        ),
+    ]
+
+    def fake_request(url: str, *, params=None, cookies):  # noqa: ANN001
+        observed_cookie_sids.append(cookies.get("sid"))
+        return responses.pop(0)
+
+    with patch("vinted_cli.api._get_session", side_effect=[first_cookies, second_cookies]):
+        with patch("vinted_cli.api._request_with_retry", side_effect=fake_request):
+            data = api.get_item("123", country="se")
+
+    assert data["item"]["title"] == "Recovered item"
+    assert observed_cookie_sids == ["old", "new"]
+
+
 def test_get_item_falls_back_to_item_page_on_404():
     page_html = (
         '<meta name="description" content="Thinkpad USB-C Dock Gen2 - Dock till dator"/>'
+        '<h3 data-testid="item-shipping-banner-title">Leverans</h3>'
+        '<h3 data-testid="item-shipping-banner-price">från 38,59&nbsp;kr</h3>'
         '<script>self.__next_f.push([1,"x",{"item":{'
         '"id":8260880672,"title":"Thinkpad USB-C Dock Gen2","currency":"SEK",'
         '"price":{"amount":"100.0","currency_code":"SEK"},'
@@ -71,3 +99,34 @@ def test_get_item_falls_back_to_item_page_on_404():
     assert item["user"]["login"] == "hallbergsvintage"
     assert item["url"] == "https://www.vinted.se/items/8260880672"
     assert item["description"] == "Dock till dator"
+    assert item["shipping_text"] == "Leverans från 38,59 kr"
+    assert item["shipping_free"] is False
+    assert item["shipping_price"]["amount"] == "38.59"
+    assert item["shipping_price"]["currency_code"] == "SEK"
+
+
+def test_get_item_fallback_extracts_free_shipping():
+    page_html = (
+        '<h3 data-testid="item-shipping-banner-title">Gratis frakt</h3>'
+        '<script>self.__next_f.push([1,"x",{"item":{'
+        '"id":111,"title":"Item with free shipping","currency":"SEK",'
+        '"price":{"amount":"10.0","currency_code":"SEK"},'
+        '"brand_dto":{"title":"Brand"},"login":"user1"'
+        "}}])</script>"
+    )
+    responses = [
+        _response("https://www.vinted.se/api/v2/items/111", 404, "<html>Not Found</html>"),
+        _response("https://www.vinted.se/items/111", 200, page_html),
+    ]
+
+    def fake_request(url: str, *, params=None, cookies):  # noqa: ANN001
+        return responses.pop(0)
+
+    with patch("vinted_cli.api._get_session", return_value=httpx.Cookies()):
+        with patch("vinted_cli.api._request_with_retry", side_effect=fake_request):
+            data = api.get_item("111", country="se")
+
+    item = data["item"]
+    assert item["shipping_text"] == "Gratis frakt"
+    assert item["shipping_free"] is True
+    assert "shipping_price" not in item

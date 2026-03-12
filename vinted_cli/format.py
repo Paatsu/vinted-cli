@@ -106,6 +106,7 @@ def print_item(data: dict, *, output: str = "table") -> None:
     size = item.get("size_title", "")
     condition = item.get("status", "")
     description = item.get("description", "")
+    shipping_text = item.get("shipping_text", "")
     seller = item.get("user", {}).get("login", "")
     url = item.get("url", "")
 
@@ -122,5 +123,7 @@ def print_item(data: dict, *, output: str = "table") -> None:
         print(f"  Seller: {seller}")
     if description:
         print(f"  Description: {description[:MAX_DESCRIPTION_LENGTH]}")
+    if shipping_text:
+        print(f"  Shipping: {shipping_text}")
     if url:
         print(f"  {url}")
