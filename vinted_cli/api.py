@@ -283,14 +283,14 @@ def search(
     condition: str | None = None,
     brand_id: str | None = None,
     size_id: str | None = None,
-    catalog_id: str | None = None,
+    catalog_ids: list[str] | tuple[str, ...] | None = None,
     sort: str | None = None,
     per_page: int = 20,
     page: int = 1,
 ) -> dict:
     """Search listings on Vinted.
 
-    brand_id, size_id, and catalog_id are numeric Vinted API IDs (e.g. brand_id="53" for Nike).
+    brand_id, size_id, and catalog IDs are numeric Vinted API IDs (e.g. brand_id="53" for Nike).
     Include brand or size terms in the query text for free-text filtering instead.
     """
     domain = _resolve_country(country)
@@ -312,8 +312,9 @@ def search(
         params.append(("brand_ids[]", brand_id))
     if size_id:
         params.append(("size_ids[]", size_id))
-    if catalog_id:
-        params.append(("catalog_ids[]", catalog_id))
+    if catalog_ids:
+        for catalog_id in catalog_ids:
+            params.append(("catalog_ids[]", catalog_id))
     if sort:
         params.append(("order", SORT_MAP.get(sort, sort)))
 

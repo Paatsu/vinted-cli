@@ -119,7 +119,7 @@ class TestSearchCommand:
             result = CliRunner().invoke(main, ["search", "nike"])
         assert "seller123" in result.output
 
-    def test_catalog_id_passed_to_api(self):
+    def test_single_catalog_id_passed_to_api(self):
         captured = {}
 
         def capture_search(*args, **kwargs):
@@ -129,7 +129,19 @@ class TestSearchCommand:
         with patch("vinted_cli.cli.api.search", capture_search):
             result = CliRunner().invoke(main, ["search", "nike", "--catalog-id", "1231"])
         assert result.exit_code == 0
-        assert captured.get("catalog_id") == "1231"
+        assert captured.get("catalog_ids") == ["1231"]
+
+    def test_multiple_catalog_ids_passed_to_api(self):
+        captured = {}
+
+        def capture_search(*args, **kwargs):
+            captured.update(kwargs)
+            return SEARCH_RESPONSE
+
+        with patch("vinted_cli.cli.api.search", capture_search):
+            result = CliRunner().invoke(main, ["search", "nike", "--catalog-id", "1231", "--catalog-id", "1232"])
+        assert result.exit_code == 0
+        assert captured.get("catalog_ids") == ["1231", "1232"]
 
     def test_search_without_query(self):
         captured = {}

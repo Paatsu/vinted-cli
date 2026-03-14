@@ -43,7 +43,11 @@ def main(ctx: click.Context, debug: bool):
 )
 @click.option("--brand-id", help="Numeric Vinted brand ID (e.g. 53 for Nike; include brand in query for free-text)")
 @click.option("--size-id", help="Numeric Vinted size ID (include size in query for free-text, e.g. 'jeans XL')")
-@click.option("--catalog-id", help="Numeric Vinted catalog ID to filter by category (use `vinted catalogs` to list them)")
+@click.option(
+    "--catalog-id",
+    multiple=True,
+    help="Numeric Vinted catalog ID to filter by category. Repeat to include multiple categories (use `vinted catalogs` to list them)",
+)
 @click.option("--sort", type=click.Choice(SORT_CHOICES, case_sensitive=False), help="Sort order")
 @click.option("-n", "--limit", type=int, help="Max results to show")
 @click.option("-p", "--page", type=int, default=1, help="Page number")
@@ -57,7 +61,7 @@ def search(
     condition: str | None,
     brand_id: str | None,
     size_id: str | None,
-    catalog_id: str | None,
+    catalog_id: tuple[str, ...],
     sort: str | None,
     limit: int | None,
     page: int,
@@ -77,6 +81,7 @@ def search(
         vinted search "jacka" -o json | jq '.results[:3]'
         vinted search "jacka" --country se -o jsonl
         vinted search "sneakers" --catalog-id 1231
+        vinted search "sneakers" --catalog-id 1231 --catalog-id 1232
         vinted search --catalog-id 1231 --sort newest
         vinted search --price-max 100
     """
@@ -89,7 +94,7 @@ def search(
             condition=condition,
             brand_id=brand_id,
             size_id=size_id,
-            catalog_id=catalog_id,
+            catalog_ids=list(catalog_id) if catalog_id else None,
             sort=sort,
             page=page,
         )

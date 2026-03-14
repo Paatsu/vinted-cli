@@ -32,6 +32,7 @@ vinted search "nike" --condition very-good --sort price-asc
 vinted search "dress M" --sort newest -n 10
 vinted search "jacka" -o json | jq '.results[:3]'
 vinted search --catalog-id 1231          # browse a category without a query
+vinted search "sneakers" --catalog-id 1231 --catalog-id 1232
 vinted search --price-max 100 --sort newest  # all cheap new listings
 ```
 
@@ -72,7 +73,7 @@ All search commands support these shared options:
 | `--condition` | Item condition filter |
 | `--brand-id` | Numeric Vinted brand ID filter |
 | `--size-id` | Numeric Vinted size ID filter |
-| `--catalog-id` | Numeric Vinted catalog ID (category) filter |
+| `--catalog-id` | Numeric Vinted catalog ID (category) filter; repeat for multiple categories |
 | `--sort` | Sort order (`relevance`, `newest`, `oldest`, `price-asc`, `price-desc`) |
 | `-n`, `--limit` | Max results to display |
 | `-p`, `--page` | Page number |

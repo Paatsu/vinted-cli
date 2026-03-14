@@ -130,3 +130,26 @@ def test_get_item_fallback_extracts_free_shipping():
     assert item["shipping_text"] == "Gratis frakt"
     assert item["shipping_free"] is True
     assert "shipping_price" not in item
+
+
+def test_search_sends_multiple_catalog_ids():
+    captured: dict = {}
+
+    def fake_request_with_forbidden_recovery(url: str, *, domain: str, cookies, params=None):  # noqa: ANN001
+        captured["url"] = url
+        captured["domain"] = domain
+        captured["params"] = params
+        response = httpx.Response(
+            200,
+            json={"items": [], "pagination": {"total_count": 0}},
+            request=httpx.Request("GET", url),
+        )
+        return response, cookies
+
+    with patch("vinted_cli.api._get_session", return_value=httpx.Cookies()):
+        with patch("vinted_cli.api._request_with_forbidden_recovery", side_effect=fake_request_with_forbidden_recovery):
+            api.search("nike", country="se", catalog_ids=["1231", "1232"])
+
+    assert captured["url"] == "https://www.vinted.se/api/v2/catalog/items"
+    assert ("catalog_ids[]", "1231") in captured["params"]
+    assert ("catalog_ids[]", "1232") in captured["params"]
