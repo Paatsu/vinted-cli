@@ -17,18 +17,38 @@ def _extract_price(item: dict) -> tuple[str, str]:
     """Return (amount, currency) handling both flat and nested price formats."""
     price = item.get("price")
     if isinstance(price, dict):
-        return price.get("amount", "—"), price.get("currency_code", "")
+        return str(price.get("amount", "-")), price.get("currency_code", "")
     # Legacy flat format
-    return str(price) if price else "—", item.get("currency", "")
+    return str(price) if price else "-", item.get("currency", "")
+
+
+def _extract_total_price(item: dict) -> tuple[str | None, str]:
+    """Return total buyer price (including fee) when available."""
+    total = item.get("total_item_price")
+    if total is None:
+        total = item.get("total_price")
+
+    if isinstance(total, dict):
+        amount = total.get("amount")
+        if amount is None:
+            return None, ""
+        return str(amount), total.get("currency_code", "")
+
+    if total in (None, ""):
+        return None, ""
+
+    return str(total), item.get("currency", "")
 
 
 def _slim(item: dict) -> dict:
     """Strip an item to agent-essential fields."""
     amount, currency = _extract_price(item)
+    total_amount, _ = _extract_total_price(item)
     out: dict[str, Any] = {
         "id": item.get("id"),
         "title": item.get("title"),
         "price": amount,
+        "total_price": total_amount,
         "currency": currency,
         "brand": item.get("brand_title"),
         "size": item.get("size_title"),
@@ -70,18 +90,22 @@ def print_results(data: dict, *, output: str = "table", limit: int | None = None
     for item in items:
         title = item.get("title", "Untitled")
         price, currency = _extract_price(item)
+        total_price, total_currency = _extract_total_price(item)
         brand = item.get("brand_title", "")
         size = item.get("size_title", "")
         condition = item.get("status", "")
         seller = item.get("user", {}).get("login", "")
         url = item.get("url", "")
 
-        price_str = f"{price} {currency}".strip() if price else "—"
+        price_str = f"{price} {currency}".strip() if price else "-"
         meta_parts = [p for p in [brand, size, condition] if p]
-        meta_str = " · ".join(meta_parts) if meta_parts else ""
+        meta_str = " | ".join(meta_parts) if meta_parts else ""
 
         print(f"  {title}")
-        print(f"  {price_str}" + (f" · {meta_str}" if meta_str else ""))
+        print(f"  {price_str}" + (f" | {meta_str}" if meta_str else ""))
+        if total_price:
+            total_str = f"{total_price} {(total_currency or currency)}".strip()
+            print(f"  Total (incl. fee): {total_str}")
         if seller:
             print(f"  Seller: {seller}")
         print(f"  {url}")

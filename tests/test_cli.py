@@ -15,6 +15,7 @@ SEARCH_RESPONSE = {
             "id": 1234567890,
             "title": "Nike Air Max 90",
             "price": "499",
+            "total_item_price": {"amount": "542.49", "currency_code": "SEK"},
             "currency": "SEK",
             "brand_title": "Nike",
             "size_title": "42",
@@ -64,6 +65,7 @@ class TestSearchCommand:
         assert result.exit_code == 0
         assert "Nike Air Max 90" in result.output
         assert "499 SEK" in result.output
+        assert "Total (incl. fee): 542.49 SEK" in result.output
 
     def test_json_output_is_slim(self):
         with patch("vinted_cli.cli.api.search", _mock_search):
@@ -75,6 +77,7 @@ class TestSearchCommand:
         assert listing["id"] == 1234567890
         assert listing["title"] == "Nike Air Max 90"
         assert listing["price"] == "499"
+        assert listing["total_price"] == "542.49"
         # Slim output should not include raw photo object
         assert "photo" not in listing or isinstance(listing["photo"], str)
         # Slim output should not include description
