@@ -179,6 +179,64 @@ def _extract_item_object_from_page(page_html: str) -> dict | None:
         return None
 
 
+def _is_escaped_at(text: str, pos: int) -> bool:
+    backslashes = 0
+    i = pos - 1
+    while i >= 0 and text[i] == "\\":
+        backslashes += 1
+        i -= 1
+    return backslashes % 2 == 1
+
+
+def _extract_next_row(page_html: str, row_id: str) -> object | None:
+    marker = f'"{row_id}:'
+    start = page_html.find(marker)
+    if start == -1:
+        return None
+
+    end = -1
+    for pos in range(start + 1, len(page_html)):
+        if page_html[pos] == '"' and not _is_escaped_at(page_html, pos):
+            end = pos
+            break
+    if end == -1:
+        return None
+
+    try:
+        row = json.loads(page_html[start : end + 1])
+        return json.loads(row.split(":", 1)[1].strip())
+    except (IndexError, json.JSONDecodeError):
+        return None
+
+
+def _resolve_next_reference(page_html: str, reference: str) -> object | None:
+    if not reference.startswith("$") or ":" not in reference:
+        return None
+
+    row_id, path = reference[1:].split(":", 1)
+    value = _extract_next_row(page_html, row_id)
+    if value is None:
+        return None
+
+    for part in path.split(":"):
+        if part == "props" and isinstance(value, list) and len(value) > 3:
+            value = value[3]
+        elif isinstance(value, dict) and part in value:
+            value = value[part]
+        else:
+            return None
+    return value
+
+
+def _resolve_item_references_from_page(item: dict, page_html: str) -> None:
+    for key in ("photos", "price", "service_fee", "total_item_price", "plugins"):
+        value = item.get(key)
+        if isinstance(value, str):
+            resolved = _resolve_next_reference(page_html, value)
+            if resolved is not None:
+                item[key] = resolved
+
+
 def _extract_meta_description(page_html: str) -> str | None:
     marker = '<meta name="description" content="'
     i = page_html.find(marker)
@@ -239,6 +297,8 @@ def _page_fallback_item(item_id: int | str, domain: str, cookies: httpx.Cookies)
     item = _extract_item_object_from_page(page_resp.text)
     if not item:
         raise ValueError("Could not parse item data from item page fallback")
+
+    _resolve_item_references_from_page(item, page_resp.text)
 
     # Keep output close to the old API shape expected by formatters and scripts.
     if "brand_title" not in item and isinstance(item.get("brand_dto"), dict):

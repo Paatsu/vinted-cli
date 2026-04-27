@@ -132,6 +132,42 @@ def test_get_item_fallback_extracts_free_shipping():
     assert "shipping_price" not in item
 
 
+def test_get_item_fallback_resolves_next_references():
+    page_html = (
+        '<script>self.__next_f.push([1,"3b:[\\"$\\",\\"$Ld3\\",null,{\\"value\\":{'
+        '\\"price\\":{\\"amount\\":\\"50.0\\",\\"currency_code\\":\\"SEK\\"},'
+        '\\"service_fee\\":{\\"amount\\":\\"10.0\\",\\"currency_code\\":\\"SEK\\"},'
+        '\\"total_item_price\\":{\\"amount\\":\\"60.0\\",\\"currency_code\\":\\"SEK\\"},'
+        '\\"photos\\":[{\\"url\\":\\"https://images.example/chromecast.webp\\"}]'
+        "}}]\\n\"])</script>"
+        '<script>self.__next_f.push([1,"x",{"item":{'
+        '"id":8762725457,"title":"Chromecast","currency":"SEK",'
+        '"price":"$3b:props:value:price",'
+        '"service_fee":"$3b:props:value:service_fee",'
+        '"total_item_price":"$3b:props:value:total_item_price",'
+        '"photos":"$3b:props:value:photos",'
+        '"brand_dto":{"title":"Google"},"login":"lisan12"'
+        "}}])</script>"
+    )
+    responses = [
+        _response("https://www.vinted.se/api/v2/items/8762725457", 404, "<html>Not Found</html>"),
+        _response("https://www.vinted.se/items/8762725457", 200, page_html),
+    ]
+
+    def fake_request(url: str, *, params=None, cookies):  # noqa: ANN001
+        return responses.pop(0)
+
+    with patch("vinted_cli.api._get_session", return_value=httpx.Cookies()):
+        with patch("vinted_cli.api._request_with_retry", side_effect=fake_request):
+            data = api.get_item("8762725457", country="se")
+
+    item = data["item"]
+    assert item["price"] == {"amount": "50.0", "currency_code": "SEK"}
+    assert item["service_fee"] == {"amount": "10.0", "currency_code": "SEK"}
+    assert item["total_item_price"] == {"amount": "60.0", "currency_code": "SEK"}
+    assert item["photo"]["url"] == "https://images.example/chromecast.webp"
+
+
 def test_search_sends_multiple_catalog_ids():
     captured: dict = {}
 

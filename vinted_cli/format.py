@@ -126,6 +126,7 @@ def print_item(data: dict, *, output: str = "table") -> None:
 
     title = item.get("title", "Untitled")
     price, currency = _extract_price(item)
+    total_price, total_currency = _extract_total_price(item)
     brand = item.get("brand_title", "")
     size = item.get("size_title", "")
     condition = item.get("status", "")
@@ -137,6 +138,9 @@ def print_item(data: dict, *, output: str = "table") -> None:
     price_str = f"{price} {currency}".strip()
     print(f"  {title}")
     print(f"  {price_str}")
+    if total_price:
+        total_str = f"{total_price} {(total_currency or currency)}".strip()
+        print(f"  Total (incl. fee): {total_str}")
     if brand:
         print(f"  Brand: {brand}")
     if size:
